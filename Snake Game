@@ -8,7 +8,7 @@ Controls:
 - 'q' to quit
 - 'r' to restart after game over
 
-Author: AI Assistant
+Author: LMCJ
 """
 
 import curses
