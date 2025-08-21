@@ -1,0 +1,325 @@
+#!/usr/bin/env python3
+"""
+Terminal Snake Game
+A classic snake game implementation for the terminal using Python's curses library.
+
+Controls:
+- Arrow keys or WASD to move
+- 'q' to quit
+- 'r' to restart after game over
+
+Author: AI Assistant
+"""
+
+import curses
+import random
+import time
+from collections import deque
+
+class SnakeGame:
+    def __init__(self):
+        self.score = 0
+        self.high_score = 0
+        
+    def init_screen(self, stdscr):
+        """Initialize the game screen and settings"""
+        curses.curs_set(0)  # Hide cursor
+        stdscr.nodelay(1)   # Non-blocking input
+        stdscr.timeout(100) # Refresh rate
+        
+        # Get screen dimensions
+        self.height, self.width = stdscr.getmaxyx()
+        
+        # Create game window
+        self.win = curses.newwin(self.height, self.width, 0, 0)
+        self.win.keypad(1)
+        # Ensure non-blocking input applies to the actual game window
+        self.win.nodelay(1)
+        self.win.timeout(100)
+        self.win.border(0)
+        
+        # Initialize colors if supported
+        if curses.has_colors():
+            curses.start_color()
+            curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)    # Snake
+            curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)      # Food
+            curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)   # Score
+            curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_RED)      # Game Over
+        
+    def reset_game(self):
+        """Reset the game to initial state"""
+        # Snake starts in the middle of the screen
+        start_x = self.width // 4
+        start_y = self.height // 2
+        
+        self.snake = deque([
+            [start_y, start_x],
+            [start_y, start_x - 1],
+            [start_y, start_x - 2]
+        ])
+        
+        # Initial direction (moving right)
+        self.direction = [0, 1]
+        
+        # Place first food
+        self.place_food()
+        
+        # Reset score
+        self.score = 0
+        
+    def place_food(self):
+        """Place food at a random location not occupied by snake"""
+        while True:
+            food_y = random.randint(1, self.height - 2)
+            food_x = random.randint(1, self.width - 2)
+            
+            if [food_y, food_x] not in self.snake:
+                self.food = [food_y, food_x]
+                break
+    
+    def update_snake(self):
+        """Update snake position and check collisions"""
+        head = list(self.snake[0])
+        head[0] += self.direction[0]  # y direction
+        head[1] += self.direction[1]  # x direction
+        
+        # Check wall collision
+        if (head[0] in [0, self.height - 1] or 
+            head[1] in [0, self.width - 1]):
+            return False
+        
+        # Check self collision
+        # Allow moving into the tail's current position when it will move this turn
+        if head in list(self.snake)[:-1]:
+            return False
+        
+        self.snake.appendleft(head)
+        
+        # Check if food eaten
+        if head == self.food:
+            self.score += 10
+            self.place_food()
+        else:
+            self.snake.pop()  # Remove tail if no food eaten
+        
+        return True
+    
+    def handle_input(self):
+        """Handle user input for direction changes"""
+        key = self.win.getch()
+        
+        # Direction mappings
+        directions = {
+            curses.KEY_UP: [-1, 0],    ord('w'): [-1, 0],   ord('W'): [-1, 0],
+            curses.KEY_DOWN: [1, 0],   ord('s'): [1, 0],    ord('S'): [1, 0],
+            curses.KEY_LEFT: [0, -1],  ord('a'): [0, -1],   ord('A'): [0, -1],
+            curses.KEY_RIGHT: [0, 1],  ord('d'): [0, 1],    ord('D'): [0, 1]
+        }
+        
+        if key in directions:
+            new_direction = directions[key]
+            # Prevent snake from going backwards into itself
+            if new_direction != [-self.direction[0], -self.direction[1]]:
+                self.direction = new_direction
+        
+        return key
+    
+    def draw(self):
+        """Draw the game state"""
+        self.win.clear()
+        self.win.border(0)
+
+        def safe_addch(y, x, ch, attr=0):
+            # Only draw inside borders to avoid curses ERR
+            if 1 <= y <= self.height - 2 and 1 <= x <= self.width - 2:
+                try:
+                    self.win.addch(y, x, ch, attr)
+                except curses.error:
+                    pass
+
+        def safe_addstr(y, x, text, attr=0):
+            if 1 <= y <= self.height - 2 and 1 <= x <= self.width - 2 and text:
+                # Trim text to available inner width
+                available = max(0, (self.width - 2) - x)
+                if available <= 0:
+                    return
+                try:
+                    self.win.addstr(y, x, text[:available], attr)
+                except curses.error:
+                    pass
+        
+        # Draw snake
+        for i, segment in enumerate(self.snake):
+            if i == 0:  # Head
+                char = 'O'
+                safe_addch(segment[0], segment[1], char,
+                           curses.color_pair(1) if curses.has_colors() else 0)
+            else:  # Body
+                char = '#'
+                safe_addch(segment[0], segment[1], char,
+                           curses.color_pair(1) if curses.has_colors() else 0)
+        
+        # Draw food
+        food_char = '*'
+        safe_addch(self.food[0], self.food[1], food_char,
+                   curses.color_pair(2) if curses.has_colors() else 0)
+        
+        # Draw score
+        score_text = f"Score: {self.score}  High: {self.high_score}"
+        safe_addstr(1, 2, score_text,
+                    curses.color_pair(3) if curses.has_colors() else 0)
+        
+        # Draw instructions
+        if self.width > 40:
+            instructions = "Arrow keys/WASD: Move | Q: Quit"
+            safe_addstr(self.height - 2, 2, instructions)
+        
+        self.win.refresh()
+    
+    def game_over_screen(self):
+        """Display game over screen"""
+        # Update high score
+        if self.score > self.high_score:
+            self.high_score = self.score
+        
+        # Clear screen and show game over message
+        self.win.clear()
+        self.win.border(0)
+        
+        messages = [
+            "GAME OVER!",
+            f"Final Score: {self.score}",
+            f"High Score: {self.high_score}",
+            "",
+            "Press 'R' to restart or 'Q' to quit"
+        ]
+        
+        start_y = self.height // 2 - len(messages) // 2
+        
+        for i, message in enumerate(messages):
+            x = max(1, (self.width - len(message)) // 2)
+            color = curses.color_pair(4) if curses.has_colors() and i == 0 else 0
+            try:
+                # Keep messages within inner bounds
+                if 1 <= start_y + i <= self.height - 2:
+                    available = (self.width - 2) - x
+                    if available > 0:
+                        self.win.addstr(start_y + i, x, message[:available], color)
+            except curses.error:
+                pass
+        
+        self.win.refresh()
+        
+        # Wait for restart or quit
+        while True:
+            key = self.win.getch()
+            if key in [ord('r'), ord('R')]:
+                return True  # Restart
+            elif key in [ord('q'), ord('Q')]:
+                return False  # Quit
+    
+    def show_start_screen(self):
+        """Show the start screen with instructions"""
+        self.win.clear()
+        self.win.border(0)
+        
+        title = "TERMINAL SNAKE GAME"
+        subtitle = "Classic Snake Game for the Terminal"
+        
+        instructions = [
+            "",
+            "HOW TO PLAY:",
+            "- Use arrow keys or WASD to move the snake",
+            "- Eat the food (*) to grow and increase your score", 
+            "- Avoid hitting walls or your own tail",
+            "- Press 'Q' anytime to quit",
+            "",
+            "CONTROLS:",
+            "- ↑/W: Move Up    - ↓/S: Move Down",
+            "- ←/A: Move Left  - →/D: Move Right",
+            "",
+            "Press any key to start playing!"
+        ]
+        
+        # Display title
+        title_y = 3
+        title_x = (self.width - len(title)) // 2
+        try:
+            self.win.addstr(title_y, max(1, title_x), title,
+                           curses.color_pair(2) if curses.has_colors() else curses.A_BOLD)
+        except curses.error:
+            pass
+        
+        subtitle_x = (self.width - len(subtitle)) // 2
+        try:
+            self.win.addstr(title_y + 1, max(1, subtitle_x), subtitle)
+        except curses.error:
+            pass
+        
+        # Display instructions
+        start_y = title_y + 3
+        for i, instruction in enumerate(instructions):
+            if instruction:
+                x = max(1, (self.width - len(instruction)) // 2)
+                try:
+                    if 1 <= start_y + i <= self.height - 2:
+                        available = (self.width - 2) - x
+                        if available > 0:
+                            self.win.addstr(start_y + i, x, instruction[:available])
+                except curses.error:
+                    pass
+        
+        self.win.refresh()
+        self.win.getch()  # Wait for any key press
+    
+    def run(self, stdscr):
+        """Main game loop"""
+        self.init_screen(stdscr)
+        
+        # Show start screen
+        self.show_start_screen()
+        
+        while True:
+            # Reset game
+            self.reset_game()
+            
+            # Main game loop
+            while True:
+                # Handle input
+                key = self.handle_input()
+                
+                # Check for quit
+                if key in [ord('q'), ord('Q')]:
+                    return
+                
+                # Update game state
+                if not self.update_snake():
+                    break  # Game over
+                
+                # Draw everything
+                self.draw()
+                
+                # Small delay for smooth animation
+                time.sleep(0.05)
+            
+            # Show game over screen and check if restart
+            if not self.game_over_screen():
+                break  # User chose to quit
+
+def main():
+    """Main function to start the game"""
+    try:
+        game = SnakeGame()
+        curses.wrapper(game.run)
+    except KeyboardInterrupt:
+        print("\nGame interrupted by user")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        print("Make sure your terminal supports the required features.")
+
+if __name__ == "__main__":
+    print("🐍 Terminal Snake Game 🐍")
+    print("Loading...")
+    main()
+    print("Thanks for playing!")
+
